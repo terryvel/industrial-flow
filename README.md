@@ -121,7 +121,7 @@ Resultado:
 batches de publicação de 10.000 eventos
 ```
 
-O backend `piapi` usa DLLs legadas do PI API. Por segurança, cada worker cria seu próprio reader e as chamadas de baixo nível são protegidas por lock dentro do reader. Para volume muito alto, a evolução natural é adicionar backends PI Web API ou AF SDK com chamadas bulk nativas.
+O backend `piapi` usa DLLs legadas do PI API. Por segurança, cada worker cria seu próprio reader e as chamadas de baixo nível são protegidas por lock dentro do reader. 
 
 ## Instalação
 
