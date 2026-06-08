@@ -1,0 +1,34 @@
+# industrial-flow multi-site sample configuration
+# Use one site per PI Server / plant. You can run all sites or only one site by CLI.
+
+sites:
+  - id: "site1"
+    enabled: true
+    pi:
+      provider: "piapi"        # Use "piapi" on Windows with PI API/PI SDK installed.
+      server: "PI-SERVER-1"
+      username: "pidemo"
+      password_env: "PI_SERVER_1_PASSWORD"
+      read_mode: "interpolated"
+    tags_file: "config/tags/site1.txt"
+    kafka_topic: "industrial-flow.site1.pi-tags"
+    file_output_path: "output/site1/events.jsonl"
+    read:
+      interval_seconds: 60
+      window_seconds: 300
+      tag_partition_size: 500
+      max_workers: 8
+      batch_size: 1000
+      checkpoint_file: ".checkpoints/industrial-flow.json"
+      point_cache_file: ".cache/site1/industrial-flow-pointids.json"
+      digital_state_cache_file: ".cache/site1/industrial-flow-digital-states.json"
+      max_publish_retries: 3
+      retry_sleep_seconds: 2
+
+
+publisher:
+  # Options: console, file, kafka, pubsub
+  type: "file"
+
+  file:
+    output_path: "output/events.jsonl"
