@@ -16,7 +16,6 @@ class PIConfig(BaseModel):
     password: str | None = None
     site: str = "default-site"
     read_mode: Literal["interpolated", "snapshot"] = "interpolated"
-    timestamp_format: str = "%d-%b-%y %H:%M:%S"
 
     @model_validator(mode="after")
     def load_password_from_env(self):
@@ -151,11 +150,7 @@ class SiteConfig(BaseModel):
 
 
 class AppConfig(BaseModel):
-    # Backward-compatible single-site fields.
-    pi: PIConfig = Field(default_factory=PIConfig)
-    tags_file: str = "config/tags.txt"
-
-    # Multi-site configuration. When populated, it is the source of truth.
+    # Site configuration. At least one site must be defined under `sites:`.
     sites: list[SiteConfig] = Field(default_factory=list)
 
     read: ReadConfig = Field(default_factory=ReadConfig)
@@ -167,17 +162,9 @@ class AppConfig(BaseModel):
     )
 
     @model_validator(mode="after")
-    def build_default_site_when_needed(self):
+    def require_at_least_one_site(self):
         if not self.sites:
-            site_id = self.pi.site or "default-site"
-            self.sites = [
-                SiteConfig(
-                    id=site_id,
-                    pi=self.pi,
-                    tags_file=self.tags_file,
-                    read=None,
-                )
-            ]
+            raise ValueError("At least one site must be defined under 'sites:'")
         return self
 
     def enabled_sites(self) -> list[SiteConfig]:

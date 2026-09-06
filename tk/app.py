@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import os
 import sys
 from pathlib import Path
 import tkinter as tk
@@ -18,8 +17,6 @@ from tk.async_loop import AsyncLoopThread
 from tk.views.config_view import ConfigurationView
 from tk.views.quit_modal import QuitConfirmationModal
 from tk.views.services_view import ServicesView
-
-os.environ["PYTHONIOENCODING"] = "utf-8"
 
 
 class IndustrialFlowTkApp:

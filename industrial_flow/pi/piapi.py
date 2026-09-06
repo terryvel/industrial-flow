@@ -19,6 +19,10 @@ from industrial_flow.pi.base import PIReader
 from industrial_flow.pi.digital_state import DigitalStateInfo, decode_negative_istat, unresolved_digital_state
 
 
+# Fixed format required by the native PI API's pitm_parsetime; not user-configurable
+_PI_TIMESTAMP_FORMAT = "%d-%b-%y %H:%M:%S"
+
+
 class PIAPIError(RuntimeError):
     pass
 
@@ -194,7 +198,7 @@ class PIAPIReader(PIReader):
         timedate = c_int()
         timestamp = value if value.tzinfo else value.replace(tzinfo=ZoneInfo("UTC"))
         pi_local_time = timestamp.astimezone(ZoneInfo(self.config.pi_timezone))
-        text = pi_local_time.strftime(self.config.timestamp_format).encode("utf-8")
+        text = pi_local_time.strftime(_PI_TIMESTAMP_FORMAT).encode("utf-8")
         time_buffer = create_string_buffer(text)
         with _global_piapi_lock:
             self._ensure_active_server()

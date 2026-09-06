@@ -301,28 +301,24 @@ O repositório inclui uma aplicação desktop nativa na pasta `tk/` projetada pa
 A configuração é salva em formato YAML e validada via Pydantic (`AppConfig`).
 
 ```yaml
-# Configuração base do leitor PI (provedor padrão para execução single-site)
-pi:
-  provider: "simulator"         # "piapi" (OSIsoft PI C-API) ou "simulator" (Sintético)
-  server: "PI-SERVER-01"
-  pi_timezone: "America/Sao_Paulo"
-  username: ""
-  password: ""                  # Pode ser informada via variável de ambiente PI_PASSWORD
-  read_mode: "interpolated"     # "interpolated" ou "snapshot"
-  timestamp_format: "%d-%b-%y %H:%M:%S"
-
-tags_file: "config/tags.txt"
-
-# Definição multi-site (fonte da verdade quando preenchida)
+# Definição dos sites. Cada site possui sua própria configuração de leitor PI.
+# Adicione apenas um item caso possua somente um servidor PI.
 sites:
   - id: "site1"
     enabled: true
     pi:
-      provider: "simulator"
+      provider: "simulator"     # "piapi" (OSIsoft PI C-API) ou "simulator" (Sintético)
       server: "PI-SERVER-01"
       pi_timezone: "America/Sao_Paulo"
-      read_mode: "interpolated"
+      username: ""
+      password: ""              # Pode ser informada via variável de ambiente PI_PASSWORD
+      read_mode: "interpolated" # "interpolated" ou "snapshot"
     tags_file: "config/tags.txt"
+  # - id: "site2"
+  #   pi:
+  #     provider: "piapi"
+  #     server: "PI-SERVER-02"
+  #   tags_file: "config/tags-site2.txt"
 
 # Ajustes gerais de extração
 read:
@@ -388,7 +384,6 @@ historical:
 ### Variáveis de Ambiente Suportadas
 
 - `PI_PASSWORD`: Senha de autenticação do servidor OSIsoft PI (quando omitida do YAML).
-- `PYTHONIOENCODING`: Definido como `utf-8` para garantir o manuseio correto de caracteres no terminal Windows.
 
 ---
 
@@ -402,7 +397,11 @@ Esta seção fornece um guia passo a passo em shell para criar todos os recursos
 export GCP_PROJECT_ID="my-industrial-flow-project"
 export GCP_REGION="us-central1"
 export BQ_LOCATION="US"
+export BQ_EXPIRATION_DAYS=365
 export GCS_BUCKET="my-industrial-flow-bucket"
+
+# Criar o projeto
+gcloud projects create ${GCP_PROJECT_ID}
 
 # Definir o projeto ativo
 gcloud config set project ${GCP_PROJECT_ID}
@@ -427,16 +426,29 @@ gcloud storage buckets create gs://${GCS_BUCKET} \
 
 Cria o dataset `industrial` e a tabela `pi_data` particionada por dia na coluna `timestamp`:
 
+- **Particionamento diário por `timestamp`**: consultas filtradas por intervalo de datas varrem apenas as partições diárias afetadas em vez da tabela inteira, reduzindo a latência da consulta e a quantidade de bytes cobrados em reconciliações históricas e dashboards.
+- **Expiração de partição (`BQ_EXPIRATION_DAYS=365`)**: a tabela é configurada para descartar automaticamente partições com mais de 1 ano, mantendo o custo de armazenamento sob controle e aplicando uma política de retenção de 1 ano sem necessidade de jobs manuais de limpeza.
+- **Clustering por `site, tag`**: dentro de cada partição diária, as linhas são fisicamente ordenadas por `site` e depois por `tag`. Como a maioria das consultas e dashboards filtra ou agrupa por planta e tag, o BigQuery consegue podar blocos e evitar a leitura de dados irrelevantes, acelerando significativamente as buscas por site/tag.
+- **Valor padrão de `ingestion_timestamp` (`CURRENT_TIMESTAMP()`)**: garante que toda linha registre o momento em que chegou ao BigQuery, mesmo que o publicador de streaming em tempo real não envie esse campo, o que é essencial para auditar a latência de ingestão e depurar atrasos no pipeline.
+
 ```bash
 # Criar Dataset no BigQuery
 bq mk --location=${BQ_LOCATION} --dataset ${GCP_PROJECT_ID}:industrial
 
-# Criar Tabela no BigQuery com esquema e particionamento diário por timestamp
+# Criar Tabela no BigQuery com esquema, particionamento diário por timestamp, expiração de partição e clustering por site/tag
 bq mk --table \
   --time_partitioning_field timestamp \
   --time_partitioning_type DAY \
+  --time_partitioning_expiration $((BQ_EXPIRATION_DAYS * 86400)) \
+  --clustering_fields site,tag \
   ${GCP_PROJECT_ID}:industrial.pi_data \
   source:STRING,server:STRING,site:STRING,tag:STRING,timestamp:TIMESTAMP,value:STRING,quality:STRING,point_id:INT64,value_type:STRING,digital_code:INT64,digital_set_id:INT64,digital_state_id:INT64,digital_state_name:STRING,raw_istat:INT64,event_id:STRING,ingestion_timestamp:TIMESTAMP
+
+# Obrigatório: definir um valor padrão no servidor para ingestion_timestamp.
+# O publicador de streaming em tempo real do BigQuery nunca envia esse campo, dependendo do BigQuery para preenchê-lo;
+# sem esse padrão, a coluna é gravada como NULL.
+bq query --use_legacy_sql=false \
+  "ALTER TABLE \`${GCP_PROJECT_ID}.industrial.pi_data\` ALTER COLUMN ingestion_timestamp SET DEFAULT CURRENT_TIMESTAMP()"
 ```
 
 ### 4. Criar Recursos no Google Cloud Pub/Sub (Opcional)

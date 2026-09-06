@@ -38,11 +38,11 @@ def test_historical_cli_tags_are_uppercase_and_deduplicated():
     assert _parse_tags("sinusoid, FLOWRATE,Sinusoid") == ["SINUSOID", "FLOWRATE"]
 
 
-def test_default_single_site_is_created_for_backward_compatibility():
-    cfg = AppConfig(pi=PIConfig(site="site1"), tags_file="tags.txt")
-    assert len(cfg.sites) == 1
-    assert cfg.sites[0].id == "site1"
-    assert cfg.sites[0].tags_file == "tags.txt"
+def test_sites_are_required():
+    import pytest
+
+    with pytest.raises(ValueError):
+        AppConfig(sites=[])
 
 
 def test_site_config_has_no_legacy_publisher_fields():
