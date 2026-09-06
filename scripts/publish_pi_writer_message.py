@@ -9,7 +9,7 @@ from google.oauth2 import service_account
 
 
 PROJECT_ID = "my-industrial-flow-project"
-TOPIC_ID = "industrial-flow-pi-writes"
+TOPIC_ID = "industrial-flow-pi-tags"
 SERVICE_ACCOUNT_FILE = "config/gcp-service-account.json"
 
 def main() -> None:
@@ -17,7 +17,7 @@ def main() -> None:
     publisher = pubsub_v1.PublisherClient(credentials=credentials)
     topic_path = publisher.topic_path(PROJECT_ID, TOPIC_ID)
     payload = {
-        "site": "casa",
+        "site": "site1",
         "tag": "TESTE_ESCRITA_01",
         "timestamp": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         "value": round(random.uniform(0.0, 100.0), 2),
