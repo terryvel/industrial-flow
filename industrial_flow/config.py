@@ -11,17 +11,17 @@ from pydantic import BaseModel, Field, model_validator
 class PIConfig(BaseModel):
     provider: Literal["piapi", "simulator"] = "simulator"
     server: str = "PI-SERVER-01"
+    pi_timezone: str = "America/Sao_Paulo"
     username: str | None = None
     password: str | None = None
-    password_env: str | None = "PI_PASSWORD"
     site: str = "default-site"
     read_mode: Literal["interpolated", "snapshot"] = "interpolated"
     timestamp_format: str = "%d-%b-%y %H:%M:%S"
 
     @model_validator(mode="after")
     def load_password_from_env(self):
-        if not self.password and self.password_env:
-            self.password = os.getenv(self.password_env)
+        if not self.password:
+            self.password = os.getenv("PI_PASSWORD")
         return self
 
 
@@ -32,11 +32,13 @@ class ReadConfig(BaseModel):
     max_workers: int = 8
     batch_size: int = 10000
     queue_max_size: int = 50
-    checkpoint_file: str = ".checkpoints/industrial-flow.json"
-    point_cache_file: str = ".cache/industrial-flow-pointids.json"
-    digital_state_cache_file: str = ".cache/industrial-flow-digital-states.json"
     max_publish_retries: int = 3
     retry_sleep_seconds: float = 2.0
+
+
+class CacheConfig(BaseModel):
+    point_cache_file: str = ".cache/industrial-flow-pointids.json"
+    digital_state_cache_file: str = ".cache/industrial-flow-digital-states.json"
 
 
 class KafkaConfig(BaseModel):
@@ -57,15 +59,82 @@ class PubSubConfig(BaseModel):
     timeout_seconds: float = 60.0
 
 
+class WriterPubSubConfig(BaseModel):
+    project_id: str | None = None
+    subscription_id: str | None = None
+    service_account_file: str | None = None
+
+
+class WriterConfig(BaseModel):
+    type: Literal["console", "pubsub"] = "console"
+    pubsub: WriterPubSubConfig = Field(default_factory=WriterPubSubConfig)
+
+
 class FileConfig(BaseModel):
     output_path: str = "output/events.jsonl"
 
 
+class BigQueryConfig(BaseModel):
+    project_id: str | None = None
+    dataset: str = "industrial"
+    table: str = "pi_data"
+    location: str | None = None
+    service_account_file: str | None = None
+    max_batch_rows: int = 1000
+    timeout_seconds: float = 60.0
+
+
+class GCSConfig(BaseModel):
+    bucket: str | None = None
+    prefix: str = "industrial-flow/parquet"
+    temp_prefix: str = "industrial-flow/temp"
+    service_account_file: str | None = None
+    delete_local_file_after_upload: bool = True
+    timeout_seconds: float = 60.0
+
+
+class ParquetConfig(BaseModel):
+    output_dir: str = "output/parquet"
+    file_prefix: str = "industrial-flow"
+    compression: str = "snappy"
+    row_group_size: int = 10000
+
+
 class PublisherConfig(BaseModel):
-    type: Literal["kafka", "pubsub", "file", "console"] = "console"
+    type: Literal["kafka", "pubsub", "file", "console", "bigquery", "parquet", "parquet_gcs", "parquet_gcs_bigquery"] = "console"
+    read: ReadConfig | None = None
     kafka: KafkaConfig = Field(default_factory=KafkaConfig)
     pubsub: PubSubConfig = Field(default_factory=PubSubConfig)
     file: FileConfig = Field(default_factory=FileConfig)
+    bigquery: BigQueryConfig = Field(default_factory=BigQueryConfig)
+    gcs: GCSConfig = Field(default_factory=GCSConfig)
+    parquet: ParquetConfig = Field(default_factory=ParquetConfig)
+
+    def is_configured(self, publisher_type: str | None = None) -> bool:
+        selected = (publisher_type or self.type or "console").lower()
+        if selected == "console":
+            return True
+        if selected == "file":
+            return bool(self.file.output_path)
+        if selected == "kafka":
+            return bool(self.kafka.bootstrap_servers and self.kafka.topic)
+        if selected == "pubsub":
+            return bool(self.pubsub.project_id and self.pubsub.topic_id)
+        if selected == "bigquery":
+            return bool(self.bigquery.project_id and self.bigquery.dataset and self.bigquery.table)
+        if selected == "parquet":
+            return bool(self.parquet.output_dir)
+        if selected == "parquet_gcs":
+            return bool(self.parquet.output_dir) and bool(self.gcs.bucket)
+        if selected == "parquet_gcs_bigquery":
+            return (
+                bool(self.parquet.output_dir)
+                and bool(self.gcs.bucket)
+                and bool(self.bigquery.project_id)
+                and bool(self.bigquery.dataset)
+                and bool(self.bigquery.table)
+            )
+        return False
 
     def for_site(self, site: "SiteConfig") -> "PublisherConfig":
         """Return a per-site publisher config without mutating the global config."""
@@ -74,8 +143,6 @@ class PublisherConfig(BaseModel):
             cfg.kafka.topic = site.kafka_topic
         if site.pubsub_topic_id:
             cfg.pubsub.topic_id = site.pubsub_topic_id
-        if site.file_output_path:
-            cfg.file.output_path = site.file_output_path
         return cfg
 
 
@@ -87,7 +154,6 @@ class SiteConfig(BaseModel):
     enabled: bool = True
     kafka_topic: str | None = None
     pubsub_topic_id: str | None = None
-    file_output_path: str | None = None
 
     @model_validator(mode="after")
     def sync_site_id_to_pi_config(self):
@@ -104,7 +170,12 @@ class AppConfig(BaseModel):
     sites: list[SiteConfig] = Field(default_factory=list)
 
     read: ReadConfig = Field(default_factory=ReadConfig)
-    publisher: PublisherConfig = Field(default_factory=PublisherConfig)
+    cache: CacheConfig = Field(default_factory=CacheConfig)
+    writer: WriterConfig = Field(default_factory=WriterConfig)
+    realtime: PublisherConfig = Field(default_factory=PublisherConfig)
+    historical: PublisherConfig = Field(
+        default_factory=lambda: PublisherConfig(type="parquet")
+    )
 
     @model_validator(mode="after")
     def build_default_site_when_needed(self):
@@ -129,8 +200,16 @@ class AppConfig(BaseModel):
                 return site
         raise ValueError(f"Site not found in config: {site_id}")
 
-    def read_for_site(self, site: SiteConfig) -> ReadConfig:
-        return site.read or self.read
+    def read_for_site(self, site: SiteConfig, mode: Literal["realtime", "historical"]) -> ReadConfig:
+        mode_read = self.publisher_for_mode(mode).read
+        return mode_read or site.read or self.read
+
+    def publisher_for_mode(self, mode: Literal["realtime", "historical"]) -> PublisherConfig:
+        if mode == "realtime":
+            return self.realtime
+        if mode == "historical":
+            return self.historical
+        raise ValueError(f"Unsupported mode: {mode}")
 
 
 def load_config(path: str | Path) -> AppConfig:

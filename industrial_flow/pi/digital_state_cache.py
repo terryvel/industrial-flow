@@ -32,9 +32,21 @@ class DigitalStateCacheStore:
     def _write_all(self, data: dict[str, Any]) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         tmp_path = self.path.with_suffix(self.path.suffix + ".tmp")
-        with tmp_path.open("w", encoding="utf-8") as fp:
-            json.dump(data, fp, ensure_ascii=False, indent=2, sort_keys=True)
-        tmp_path.replace(self.path)
+        try:
+            with tmp_path.open("w", encoding="utf-8") as fp:
+                json.dump(data, fp, ensure_ascii=False, indent=2, sort_keys=True)
+            tmp_path.replace(self.path)
+        except PermissionError:
+            # Windows can deny atomic replace when the target file is being held open by
+            # another process or the antivirus is scanning it. Fall back to a direct write
+            # instead of crashing the ingestion loop.
+            with self.path.open("w", encoding="utf-8") as fp:
+                json.dump(data, fp, ensure_ascii=False, indent=2, sort_keys=True)
+            if tmp_path.exists():
+                try:
+                    tmp_path.unlink()
+                except OSError:
+                    pass
 
     @staticmethod
     def _server_key(server: str) -> str:

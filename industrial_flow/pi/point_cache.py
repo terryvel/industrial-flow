@@ -77,6 +77,18 @@ class PointIdCacheStore:
 
     def _write_payload(self, payload: dict) -> None:
         tmp = self.path.with_suffix(".tmp")
-        with tmp.open("w", encoding="utf-8") as fp:
-            json.dump(payload, fp, indent=2, sort_keys=True)
-        tmp.replace(self.path)
+        try:
+            with tmp.open("w", encoding="utf-8") as fp:
+                json.dump(payload, fp, indent=2, sort_keys=True)
+            tmp.replace(self.path)
+        except PermissionError:
+            # Windows can reject the atomic replace when the target file is locked or being
+            # scanned by security tooling. Falling back to a direct write keeps the cache
+            # functional and avoids interrupting the PI stream.
+            with self.path.open("w", encoding="utf-8") as fp:
+                json.dump(payload, fp, indent=2, sort_keys=True)
+            if tmp.exists():
+                try:
+                    tmp.unlink()
+                except OSError:
+                    pass

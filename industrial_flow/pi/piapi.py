@@ -5,6 +5,7 @@ import platform
 from ctypes import byref, c_float, c_int, create_string_buffer, pointer
 from datetime import datetime, timedelta
 from threading import Lock
+from zoneinfo import ZoneInfo
 
 # Global lock to serialize all access to the legacy PI API DLL (which is not thread-safe)
 _global_piapi_lock = Lock()
@@ -50,6 +51,19 @@ class PIAPIReader(PIReader):
                 self.piapi.piut_setservernode(pointer(server_buf))
             _active_server_in_dll = self.config.server
 
+    def is_connected(self) -> bool:
+        """Return whether the client is still connected to the PI server.
+
+        piut_isconnected() is a lightweight status check exposed by the PI API and is
+        useful for retry/backoff logic when a read fails for network or server reasons.
+        """
+        if self.piapi is None or not hasattr(self.piapi, "piut_isconnected"):
+            return False
+
+        with _global_piapi_lock:
+            self._ensure_active_server()
+            return bool(self.piapi.piut_isconnected())
+
     @property
     def point_cache(self) -> dict[str, int]:
         return dict(self._point_cache)
@@ -66,6 +80,15 @@ class PIAPIReader(PIReader):
 
     def export_digital_state_cache(self) -> dict[int, DigitalStateInfo]:
         return dict(self._digital_state_cache)
+
+    def _require_connected(self, operation: str) -> None:
+        """Fail fast before issuing a legacy PI DLL command when the server is already disconnected."""
+        if self.piapi is None:
+            raise PIAPIError("PI API is not connected")
+        if not self.is_connected():
+            raise PIAPIError(
+                f"PI Server {self.config.server} reports disconnected state while {operation}."
+            )
 
     def _decode_pi_string(self, raw: bytes) -> str:
         for encoding in ("utf-8", "mbcs", "latin-1"):
@@ -90,6 +113,7 @@ class PIAPIReader(PIReader):
 
         if self.piapi is None or not hasattr(self.piapi, "pipt_digstate"):
             return None
+        self._require_connected("resolving the digital state")
 
         buffer_size = 256
         state_buffer = create_string_buffer(buffer_size)
@@ -139,9 +163,13 @@ class PIAPIReader(PIReader):
         if status != 0 or valid.value == 0:
             raise PIAPIError(f"Failed to login to PI Server {self.config.server}. status={status}")
 
+        if not self.is_connected():
+            raise PIAPIError(f"PI Server {self.config.server} reports disconnected state after login.")
+
     def cache_points(self, tags: list[str]) -> None:
-        if self.piapi is None:
-            raise PIAPIError("PI API is not connected")
+        self._require_connected("resolving point IDs")
+        if self.piapi is None or not hasattr(self.piapi, "pipt_findpoint"):
+            raise PIAPIError("PI API is not ready to resolve point IDs.")
 
         missing = 0
         for tag in tags:
@@ -162,9 +190,11 @@ class PIAPIReader(PIReader):
             pass
 
     def _parse_time(self, value: datetime) -> c_int:
-        assert self.piapi is not None
+        self._require_connected("parsing PI time")
         timedate = c_int()
-        text = value.strftime(self.config.timestamp_format).encode("utf-8")
+        timestamp = value if value.tzinfo else value.replace(tzinfo=ZoneInfo("UTC"))
+        pi_local_time = timestamp.astimezone(ZoneInfo(self.config.pi_timezone))
+        text = pi_local_time.strftime(self.config.timestamp_format).encode("utf-8")
         time_buffer = create_string_buffer(text)
         with _global_piapi_lock:
             self._ensure_active_server()
@@ -173,6 +203,40 @@ class PIAPIReader(PIReader):
             raise PIAPIError(f"Error parsing PI time {text!r}: {status}")
         return timedate
 
+    def write_archive_value(
+        self,
+        tag: str,
+        timestamp: datetime,
+        value: float,
+        istat: int = 0,
+        wait: bool = True,
+    ) -> None:
+        self._require_connected("writing an archive value")
+        if self.piapi is None or not hasattr(self.piapi, "piar_putvalue"):
+            raise PIAPIError("PI API is not ready to write archive values.")
+
+        normalized_tag = tag.upper()
+        if normalized_tag not in self._point_cache:
+            self.cache_points([normalized_tag])
+        point_id = self._point_cache.get(normalized_tag, -1)
+        if point_id < 0:
+            raise PIAPIError(f"Point not found for PI archive write: {normalized_tag}")
+
+        pi_time = self._parse_time(timestamp)
+        with _global_piapi_lock:
+            self._ensure_active_server()
+            status = self.piapi.piar_putvalue(
+                c_int(point_id),
+                c_float(value),
+                c_int(istat),
+                pi_time,
+                c_int(int(wait)),
+            )
+        if status != 0:
+            raise PIAPIError(
+                f"PI archive write failed for {normalized_tag} at {timestamp.isoformat()}. status={status}"
+            )
+
     def read_interpolated_values(
         self,
         tags: list[str],
@@ -180,8 +244,7 @@ class PIAPIReader(PIReader):
         end: datetime,
         interval_seconds: int,
     ) -> list[TagEvent]:
-        if self.piapi is None:
-            raise PIAPIError("PI API is not connected")
+        self._require_connected("reading interpolated values")
 
         events: list[TagEvent] = []
         current = start

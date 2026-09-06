@@ -8,6 +8,10 @@ from industrial_flow.pi.digital_state import DigitalStateInfo
 
 
 class PIReader(ABC):
+    def is_connected(self) -> bool:
+        """Return whether the underlying PI connection is currently considered active."""
+        return True
+
     @abstractmethod
     def connect(self) -> None:
         pass

@@ -5,4 +5,7 @@ pydantic>=2.7.0
 tzdata==2026.2
 # Optional publishers:
 # confluent-kafka>=2.4.0
-# google-cloud-pubsub>=2.21.0
+google-cloud-pubsub>=2.21.0
+google-cloud-bigquery>=3.25.0
+google-cloud-bigquery-storage>=2.26.0
+google-cloud-storage>=2.19.0

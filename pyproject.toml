@@ -19,8 +19,21 @@ dependencies = [
 [project.optional-dependencies]
 kafka = ["confluent-kafka>=2.4.0"]
 pubsub = ["google-cloud-pubsub>=2.21.0"]
+bigquery = [
+    "google-cloud-bigquery>=3.25.0",
+    "google-cloud-bigquery-storage>=2.26.0",
+    "google-cloud-storage>=2.19.0",
+]
 dev = ["pytest>=8.2.0", "ruff>=0.5.0"]
-all = ["confluent-kafka>=2.4.0", "google-cloud-pubsub>=2.21.0", "pytest>=8.2.0", "ruff>=0.5.0"]
+all = [
+    "confluent-kafka>=2.4.0",
+    "google-cloud-pubsub>=2.21.0",
+    "google-cloud-bigquery>=3.25.0",
+    "google-cloud-bigquery-storage>=2.26.0",
+    "google-cloud-storage>=2.19.0",
+    "pytest>=8.2.0",
+    "ruff>=0.5.0",
+]
 
 [project.scripts]
 industrial-flow = "industrial_flow.cli:app"

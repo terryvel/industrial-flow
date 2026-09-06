@@ -1,5 +1,34 @@
+from pathlib import Path
+
 from industrial_flow.pi.digital_state import DigitalStateInfo
 from industrial_flow.pi.digital_state_cache import DigitalStateCacheStore
+
+
+def test_digital_state_cache_falls_back_when_atomic_replace_is_blocked(tmp_path, monkeypatch):
+    store = DigitalStateCacheStore(tmp_path / "digital-states.json")
+
+    original_replace = Path.replace
+
+    def fake_replace(self, target):
+        if self.name.endswith(".tmp"):
+            raise PermissionError("Access is denied")
+        return original_replace(self, target)
+
+    monkeypatch.setattr(Path, "replace", fake_replace)
+
+    store.merge(
+        "site1",
+        "PI-SERVER-1",
+        {
+            -62914560: DigitalStateInfo(
+                digital_code=-62914560,
+                digital_state_name="Shutdown",
+                source="test",
+            )
+        },
+    )
+
+    assert store.load("site1", "PI-SERVER-1")[-62914560].digital_state_name == "Shutdown"
 
 
 def test_digital_state_cache_is_isolated_by_site_server_and_code(tmp_path):

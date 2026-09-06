@@ -1,34 +1,73 @@
-# industrial-flow multi-site sample configuration
-# Use one site per PI Server / plant. You can run all sites or only one site by CLI.
+# industrial-flow sample configuration
 
 sites:
   - id: "site1"
     enabled: true
     pi:
-      provider: "piapi"        # Use "piapi" on Windows with PI API/PI SDK installed.
-      server: "PI-SERVER-1"
-      username: "pidemo"
-      password_env: "PI_SERVER_1_PASSWORD"
+      provider: "simulator" # Use "piapi" on Windows with PI API/PI SDK installed.
+      server: "PI-SERVER-01"
+      pi_timezone: "America/Sao_Paulo"
       read_mode: "interpolated"
-    tags_file: "config/tags/site1.txt"
-    kafka_topic: "industrial-flow.site1.pi-tags"
-    file_output_path: "output/site1/events.jsonl"
-    read:
-      interval_seconds: 60
-      window_seconds: 300
-      tag_partition_size: 500
-      max_workers: 8
-      batch_size: 1000
-      checkpoint_file: ".checkpoints/industrial-flow.json"
-      point_cache_file: ".cache/site1/industrial-flow-pointids.json"
-      digital_state_cache_file: ".cache/site1/industrial-flow-digital-states.json"
-      max_publish_retries: 3
-      retry_sleep_seconds: 2
+    tags_file: "config/tags.txt"
+    kafka_topic: "industrial-flow.site1-pi-tags"
+    pubsub_topic_id: "industrial-flow-site1-pi-tags"
 
+# Ajustes gerais de extração
+read:
+  interval_seconds: 60
+  window_seconds: 300
+  tag_partition_size: 250
+  max_workers: 8
+  batch_size: 10000
+  queue_max_size: 50
+  max_publish_retries: 3
+  retry_sleep_seconds: 2.0
 
-publisher:
-  # Options: console, file, kafka, pubsub
-  type: "file"
+# Caminhos de cache de metadados locais
+cache:
+  point_cache_file: ".cache/industrial-flow-pointids.json"
+  digital_state_cache_file: ".cache/industrial-flow-digital-states.json"
 
-  file:
-    output_path: "output/events.jsonl"
+# Configuração do serviço gravador de arquivo (Writer)
+writer:
+  type: "console"               # "console" ou "pubsub"
+  pubsub:
+    project_id: "my-industrial-flow-project"
+    subscription_id: "industrial-flow-writer-sub"
+    service_account_file: "config/gcp-service-account.json"
+
+# Configuração do modo streaming em tempo real
+realtime:
+  type: "console"               # Opções: console, file, kafka, pubsub, bigquery
+  kafka:
+    bootstrap_servers: "localhost:9092"
+    topic: "industrial-flow.pi-tags"
+    client_id: "industrial-flow"
+    compression_type: "snappy"
+  pubsub:
+    project_id: "my-industrial-flow-project"
+    topic_id: "industrial-flow-pi-tags"
+    ordering_key_by_tag: false
+  bigquery:
+    project_id: "my-industrial-flow-project"
+    dataset: "industrial"
+    table: "pi_data"
+    service_account_file: "config/gcp-service-account.json"
+
+# Configuração do modo de reconciliação histórica
+historical:
+  type: "parquet"               # Opções: parquet, parquet_gcs, parquet_gcs_bigquery
+  parquet:
+    output_dir: "output/parquet"
+    file_prefix: "industrial-flow"
+    compression: "snappy"
+  gcs:
+    bucket: "my-industrial-flow-bucket"
+    prefix: "industrial-flow/parquet"
+    service_account_file: "config/gcp-service-account.json"
+    delete_local_file_after_upload: true
+  bigquery:
+    project_id: "my-industrial-flow-project"
+    dataset: "industrial"
+    table: "pi_data"
+    service_account_file: "config/gcp-service-account.json"

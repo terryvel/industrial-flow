@@ -13,7 +13,7 @@ def parse_datetime(value: str, tz=DEFAULT_TIMEZONE) -> datetime:
     parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=tz)
-    return parsed.astimezone(tz)
+    return parsed.astimezone(timezone.utc if parsed.utcoffset() is not None else tz)
 
 
 def floor_to_interval(dt: datetime, seconds: int) -> datetime:
