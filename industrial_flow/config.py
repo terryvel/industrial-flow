@@ -136,15 +136,6 @@ class PublisherConfig(BaseModel):
             )
         return False
 
-    def for_site(self, site: "SiteConfig") -> "PublisherConfig":
-        """Return a per-site publisher config without mutating the global config."""
-        cfg = self.model_copy(deep=True)
-        if site.kafka_topic:
-            cfg.kafka.topic = site.kafka_topic
-        if site.pubsub_topic_id:
-            cfg.pubsub.topic_id = site.pubsub_topic_id
-        return cfg
-
 
 class SiteConfig(BaseModel):
     id: str
@@ -152,8 +143,6 @@ class SiteConfig(BaseModel):
     tags_file: str
     read: ReadConfig | None = None
     enabled: bool = True
-    kafka_topic: str | None = None
-    pubsub_topic_id: str | None = None
 
     @model_validator(mode="after")
     def sync_site_id_to_pi_config(self):

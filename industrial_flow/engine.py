@@ -39,7 +39,6 @@ class SiteEngine:
         mode = "historical" if self.publisher_type in {"parquet", "parquet_gcs", "parquet_gcs_bigquery"} else "realtime"
         config = self.app_config.publisher_for_mode(mode).model_copy(deep=True)
         config.type = self.publisher_type
-        config = config.for_site(self.site)
         return create_publisher(config)
 
     def _read_partition(self, tags: list[str], start: datetime, end: datetime) -> list[TagEvent]:

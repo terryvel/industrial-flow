@@ -45,23 +45,10 @@ def test_default_single_site_is_created_for_backward_compatibility():
     assert cfg.sites[0].tags_file == "tags.txt"
 
 
-def test_site_config_has_no_file_output_path_field():
+def test_site_config_has_no_legacy_publisher_fields():
     assert "file_output_path" not in SiteConfig.model_fields
-
-
-def test_site_overrides_publisher_targets():
-    site = SiteConfig(
-        id="site2",
-        pi=PIConfig(provider="simulator", server="PI-SERVER-2"),
-        tags_file="tags/site2.txt",
-        kafka_topic="industrial-flow.site2.pi-tags",
-        pubsub_topic_id="industrial-flow-site2-pi-tags",
-    )
-    cfg = AppConfig(sites=[site])
-    publisher = cfg.realtime.for_site(site)
-    assert publisher.kafka.topic == "industrial-flow.site2.pi-tags"
-    assert publisher.pubsub.topic_id == "industrial-flow-site2-pi-tags"
-    assert publisher.file.output_path == "output/events.jsonl"
+    assert "kafka_topic" not in SiteConfig.model_fields
+    assert "pubsub_topic_id" not in SiteConfig.model_fields
 
 
 def test_validate_config_omits_default_top_level_pi_block():

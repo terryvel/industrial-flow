@@ -323,8 +323,6 @@ sites:
       pi_timezone: "America/Sao_Paulo"
       read_mode: "interpolated"
     tags_file: "config/tags.txt"
-    kafka_topic: "industrial-flow.site1-pi-tags"
-    pubsub_topic_id: "industrial-flow-site1-pi-tags"
 
 # General extraction tuning
 read:
